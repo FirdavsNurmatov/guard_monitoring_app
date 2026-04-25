@@ -3,7 +3,7 @@ import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Alert, BackHandler, ScrollView, StyleSheet, Text, Vibration, View } from 'react-native';
+import { Alert, BackHandler, Linking, ScrollView, StyleSheet, Text, Vibration, View } from 'react-native';
 import NfcManager from 'react-native-nfc-manager';
 import { Button, ErrorMessage } from '../components';
 import { Colors, FontSize, Spacing } from '../constants';
@@ -15,9 +15,6 @@ import { StorageService } from '../services/storage';
 const successSound = require('../../assets/audio/success.mp3');
 const errorSound = require('../../assets/audio/error.mp3');
 
-enum NfcTech {
-  Ndef = 'Ndef',
-}
 
 interface CheckinLog {
   id: string;
@@ -120,8 +117,10 @@ export default function CheckinScreen() {
       const supported = await NfcManager.isSupported();
       if (supported) {
         await NfcManager.start();
-        setNfcEnabled(true);
-        if (nfcCheckTimer.current) {
+        // Check if NFC is enabled in settings
+        const enabled = await NfcManager.isEnabled();
+        setNfcEnabled(enabled);
+        if (enabled && nfcCheckTimer.current) {
           clearInterval(nfcCheckTimer.current);
           nfcCheckTimer.current = null;
         }
@@ -131,6 +130,19 @@ export default function CheckinScreen() {
     } catch (err) {
       console.error('NFC check error', err);
       setNfcEnabled(false);
+    }
+  };
+
+  const openNFCSettings = async () => {
+    try {
+      await Linking.sendIntent('android.settings.NFC_SETTINGS');
+    } catch (err) {
+      console.error('Failed to open NFC settings:', err);
+      Alert.alert(
+        t('error'),
+        t('nfc_settings_manual'),
+        [{ text: t('ok'), style: 'default' }]
+      );
     }
   };
 
@@ -159,7 +171,7 @@ export default function CheckinScreen() {
 
     try {
       // Try without specific technology first
-      await NfcManager.requestTechnology([NfcTech.Ndef, 'NfcA', 'NfcB', 'NfcF', 'NfcV', 'IsoDep', 'MifareClassic', 'MifareUltralight'] as any);
+      await NfcManager.requestTechnology(['NfcA', 'MifareClassic'] as any);
       const tag = await NfcManager.getTag();
       console.log('Tag detected:', tag);
       if (tag && tag.id) {
@@ -206,13 +218,18 @@ export default function CheckinScreen() {
         console.log('GPS location updated:', location);
 
         // Send location to server
-        if (userId) {
+        const user = await StorageService.getUser();
+        const currentUserId = user?.id || userId;
+        console.log('Location update: userId =', currentUserId, 'location =', location);
+        if (currentUserId) {
           try {
-            await ApiService.updateLocation(userId, location.latitude, location.longitude);
+            await ApiService.updateLocation(currentUserId, location.latitude, location.longitude);
             console.log('Location sent to server successfully');
           } catch (err) {
             console.error('Failed to send location to server:', err);
           }
+        } else {
+          console.warn('userId is null, skipping location update');
         }
       } catch (err) {
         console.error('GPS tracking error', err);
@@ -438,7 +455,16 @@ export default function CheckinScreen() {
         />
 
         {!nfcEnabled && (
-          <ErrorMessage message={t('nfc_unavailable_short')} type="warning" />
+          <>
+            <ErrorMessage message={t('nfc_unavailable_short')} type="warning" />
+            <Button
+              title={t('enable_nfc')}
+              onPress={openNFCSettings}
+              variant="secondary"
+              size="small"
+              style={styles.settingsButton}
+            />
+          </>
         )}
 
         {!gpsEnabled && (
@@ -534,6 +560,9 @@ const styles = StyleSheet.create({
   },
   scanButton: {
     marginTop: Spacing.lg,
+  },
+  settingsButton: {
+    marginTop: Spacing.md,
   },
   logsContainer: {
     marginTop: Spacing.xl,

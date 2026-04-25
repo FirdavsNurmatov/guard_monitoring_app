@@ -15,7 +15,7 @@ export const TRANSLATIONS: Record<LanguageCode, Translation> = {
     loading: "Yuklanmoqda...",
     retry: "Qayta urinish",
     back: "Orqaga",
-    logout: "Chiqish",                                         // ✏️ "Logout" → "Chiqish"
+    logout: "Chiqish", // ✏️ "Logout" → "Chiqish"
     error: "Xatolik",
     success: "Muvaffaqiyat",
     cancel: "Bekor qilish",
@@ -27,14 +27,14 @@ export const TRANSLATIONS: Record<LanguageCode, Translation> = {
     clear_logs_warning: "Barcha loglar o'chiriladi",
     loading_logs: "Loglar yuklanmoqda...",
     no_logs: "Loglar yo'q",
-    checkin_history: "Checkin tarixi",
+    checkin_history: "Tekshiruv tarixi",
     offline: "Offline",
     failed: "Xatolik",
     not_synced: "Sinxronizatsiya qilinmadi",
     scan_nfc_tag: "NFC tag skan qilish",
     scanning: "Skan qilinmoqda...",
     scan_failed: "Skan xatoligi",
-    already_logged_in: "Siz allaqachon tizimga kirdingiz",     // ✏️ "kirgansiz" → "kirdingiz"
+    already_logged_in: "Siz allaqachon tizimga kirdingiz", // ✏️ "kirgansiz" → "kirdingiz"
 
     // Login page
     organization_id: "Tashkilot ID",
@@ -78,18 +78,20 @@ export const TRANSLATIONS: Record<LanguageCode, Translation> = {
     tap_tag: "Telefonni belgiga tekkazing",
     last_log: "Oxirgi log",
     no_last_log: "yo'q",
-    checkin_success: "Check-in muvaffaqiyatli",
-    last_log_prefix: "Oxirgi check-in",
-    confirm_logout: "Tizimdan chiqmoqchimisiz?",              // ✏️ "Logout qilmoqchimisiz?" → "Tizimdan chiqmoqchimisiz?"
+    checkin_success: "Tekshiruv muvaffaqiyatli",
+    last_log_prefix: "Oxirgi tekshiruv",
+    confirm_logout: "Tizimdan chiqmoqchimisiz?", // ✏️ "Logout qilmoqchimisiz?" → "Tizimdan chiqmoqchimisiz?"
     internet_or_server_error: "Internet yoki server xatoligi",
     offline_checkin_saved: "Ma'lumotlar saqlandi (offline)",
     retry_connection: "Qayta ulanish",
     nfc_unavailable_short: "NFC mavjud emas",
-    nfc_retry_attempt: "Qayta urinib ko'rish",               // ✏️ "Qayta urinish" → "Qayta urinib ko'rish"
+    nfc_retry_attempt: "Qayta urinib ko'rish", // ✏️ "Qayta urinish" → "Qayta urinib ko'rish"
     nfc_checking: "NFC tekshirilmoqda...",
-    max_retry_reached: "Urinishlar soni tugadi",             // ✏️ "Maksimal urinishlar soni yetdi" → "Urinishlar soni tugadi"
+    max_retry_reached: "Urinishlar soni tugadi", // ✏️ "Maksimal urinishlar soni yetdi" → "Urinishlar soni tugadi"
     restart_app: "Ilovani qayta ishga tushuring",
     restart_app_nfc: "Ilovani qayta ishga tushuring (NFC uchun)",
+    enable_nfc: "NFC ni yoqish",
+    nfc_settings_manual: "NFC ni sozlamalardan yoqing",
 
     // Validation
     login_required: "Login kiritilmadi",
@@ -131,8 +133,8 @@ export const TRANSLATIONS: Record<LanguageCode, Translation> = {
     clear_logs_warning: "Все логи будут удалены",
     loading_logs: "Загрузка логов...",
     no_logs: "Нет логов",
-    checkin_history: "История check-in",
-    offline: "Офлайн",                                        // ✏️ "Офлайн" (bir "ф")
+    checkin_history: "История проверок",
+    offline: "Офлайн", // ✏️ "Офлайн" (bir "ф")
     failed: "Ошибка",
     not_synced: "Не синхронизировано",
     scan_nfc_tag: "Сканировать NFC тег",
@@ -182,18 +184,20 @@ export const TRANSLATIONS: Record<LanguageCode, Translation> = {
     tap_tag: "Прикоснитесь телефоном к метке",
     last_log: "Последняя запись",
     no_last_log: "нет",
-    checkin_success: "Check-in успешен",
-    last_log_prefix: "Последний check-in",
+  checkin_success: "Проверка выполнена успешно",
+    last_log_prefix: "Последняя проверка",
     confirm_logout: "Выйти из системы?",
     internet_or_server_error: "Ошибка интернета или сервера",
-    offline_checkin_saved: "Данные сохранены (офлайн)",       // ✏️ "оффлайн" → "офлайн"
+    offline_checkin_saved: "Данные сохранены (офлайн)", // "оффлайн" → "офлайн"
     retry_connection: "Повторное подключение",
-    nfc_unavailable_short: "NFC недоступно",                  // ✏️ "недоступен" → "недоступно"
+    nfc_unavailable_short: "NFC недоступно", // "недоступен" → "недоступно"
     nfc_retry_attempt: "Повторная попытка",
     nfc_checking: "Проверка NFC...",
     max_retry_reached: "Достигнуто максимальное количество попыток",
     restart_app: "Перезапустите приложение",
     restart_app_nfc: "Перезапустите приложение (для NFC)",
+    enable_nfc: "Включить NFC",
+    nfc_settings_manual: "Включите NFC в настройках",
 
     // Validation
     login_required: "Логин не введен",
@@ -222,7 +226,7 @@ export const TRANSLATIONS: Record<LanguageCode, Translation> = {
     loading: "Юкланмоқда...",
     retry: "Қайта уриниш",
     back: "Орқага",
-    logout: "Чиқиш",                                          // ✏️ "Логаут" → "Чиқиш"
+    logout: "Чиқиш", // ✏️ "Логаут" → "Чиқиш"
     error: "Хатолик",
     success: "Муваффақият",
     cancel: "Бекор қилиш",
@@ -234,14 +238,14 @@ export const TRANSLATIONS: Record<LanguageCode, Translation> = {
     clear_logs_warning: "Барча логлар ўчирилади",
     loading_logs: "Логлар юкланмоқда...",
     no_logs: "Логлар йўқ",
-    checkin_history: "Чекин тарихи",
+  checkin_history: "Текширув тарихи",
     offline: "Офлайн",
     failed: "Хатолик",
     not_synced: "Синхронизация қилинмади",
     scan_nfc_tag: "NFC тег скан қилиш",
     scanning: "Скан қилинмоқда...",
     scan_failed: "Скан хатолиги",
-    already_logged_in: "Сиз аллақачон тизимга кирдингиз",    // ✏️ "киргансиз" → "кирдингиз"
+    already_logged_in: "Сиз аллақачон тизимга кирдингиз", // ✏️ "киргансиз" → "кирдингиз"
 
     // Login page
     organization_id: "Ташкилот ID",
@@ -285,18 +289,20 @@ export const TRANSLATIONS: Record<LanguageCode, Translation> = {
     tap_tag: "Телефонни белгига текказинг",
     last_log: "Охирги лог",
     no_last_log: "йўқ",
-    checkin_success: "Check-in муваффақиятли",
-    last_log_prefix: "Охирги check-in",
-    confirm_logout: "Тизимдан чиқмоқчимисиз?",              // ✏️ "Логаут қилмоқчимисиз?" → "Тизимдан чиқмоқчимисиз?"
+    checkin_success: "Текширув муваффақиятли",
+    last_log_prefix: "Охирги текширув",
+    confirm_logout: "Тизимдан чиқмоқчимисиз?", // ✏️ "Логаут қилмоқчимисиз?" → "Тизимдан чиқмоқчимисиз?"
     internet_or_server_error: "Интернет ёки сервер хатолиги",
-    offline_checkin_saved: "Маълумотлар сақланди (офлайн)",  // ✏️ "оффлайн" → "офлайн"
+    offline_checkin_saved: "Маълумотлар сақланди (офлайн)", // ✏️ "оффлайн" → "офлайн"
     retry_connection: "Қайта уланиш",
     nfc_unavailable_short: "NFC мавжуд эмас",
-    nfc_retry_attempt: "Қайта уринib кўриш",                // ✏️ "Қайта уриниш" → "Қайта уринib кўриш"
+    nfc_retry_attempt: "Қайта уринib кўриш", // ✏️ "Қайта уриниш" → "Қайта уринib кўриш"
     nfc_checking: "NFC текширилмоқда...",
-    max_retry_reached: "Уринишлар сони тугади",             // ✏️ "Максималь уринишлар сони етди" → "Уринишлар сони тугади"
+    max_retry_reached: "Уринишлар сони тугади", // ✏️ "Максималь уринишлар сони етди" → "Уринишлар сони тугади"
     restart_app: "Иловани қайта ишга тушуринг",
     restart_app_nfc: "Иловани қайта ишга тушуринг (NFC учун)",
+    enable_nfc: "NFC ни ёқиш",
+    nfc_settings_manual: "NFC ни созламалардан ёқинг",
 
     // Validation
     login_required: "Логин киритилмади",
