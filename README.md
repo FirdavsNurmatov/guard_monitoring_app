@@ -1,8 +1,50 @@
-# Welcome to your Expo app 👋
+# Guard Monitoring App
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+React Native based Guard Monitoring application migrated from Cordova. This app allows security guards to check in at checkpoints using NFC tags and GPS tracking.
 
-## Get started
+## Features
+
+- **Organization-based Authentication**: Login with organization ID
+- **Guard Selection**: Select from list of available guards
+- **PIN Authentication**: Secure PIN-based login
+- **NFC Check-in**: Scan NFC tags at checkpoints
+- **GPS Tracking**: Real-time location tracking
+- **Multi-language Support**: Uzbek (Latin), Uzbek (Cyrillic), Russian
+- **Offline Support**: Store check-ins when offline, sync when online
+- **Auto-retry**: Automatic retry for failed API calls
+
+## Tech Stack
+
+- **Framework**: React Native with Expo
+- **Navigation**: Expo Router (file-based routing)
+- **State Management**: React Hooks
+- **Storage**: AsyncStorage
+- **Location**: expo-location
+- **NFC**: react-native-nfc-manager
+- **Network**: @react-native-community/netinfo
+- **i18n**: i18next + react-i18next
+- **TypeScript**: Full TypeScript support
+
+## Project Structure
+
+```
+src/
+├── app/              # Expo Router screens
+│   ├── _layout.tsx  # Root layout with i18n provider
+│   ├── index.tsx    # Home screen
+│   ├── login.tsx    # Organization ID login
+│   ├── pin.tsx      # PIN authentication
+│   ├── list.tsx     # Guard list selection
+│   └── checkin.tsx  # NFC check-in screen
+├── screens/         # Additional screens
+├── services/        # API, storage services
+├── utils/           # Logger, validator helpers
+├── i18n/            # Translations
+├── constants/       # Config
+└── types/           # TypeScript types
+```
+
+## Getting Started
 
 1. Install dependencies
 
@@ -10,47 +52,58 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
    npm install
    ```
 
-2. Start the app
+2. Start the development server
 
    ```bash
    npx expo start
    ```
 
-In the output, you'll find options to open the app in a
+3. Run on Android
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+   ```bash
+   npx expo start --android
+   ```
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+4. Run on iOS
 
-## Get a fresh project
+   ```bash
+   npx expo start --ios
+   ```
 
-When you're ready, run:
+## API Configuration
 
-```bash
-npm run reset-project
-```
+The app connects to the Guard Monitoring API at `https://guard.bgs.uz/api`.
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+Endpoints:
 
-### Other setup steps
+- `GET /api/v1/admin/guardlist` - Get list of guards
+- `POST /api/v1/auth/guard` - Authenticate guard
+- `POST /api/v1/admin/checkin` - Submit check-in
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+## Permissions
 
-## Learn more
+The app requires the following permissions on Android:
 
-To learn more about developing your project with Expo, look at the following resources:
+- `ACCESS_FINE_LOCATION` - For GPS tracking
+- `ACCESS_COARSE_LOCATION` - For GPS tracking
+- `ACCESS_BACKGROUND_LOCATION` - For background GPS
+- `NFC` - For NFC tag scanning
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+## Migration from Cordova
 
-## Join the community
+This project was migrated from a Cordova-based application. Key changes:
 
-Join our community of developers creating universal apps.
+- Replaced Cordova plugins with Expo/React Native equivalents
+- Migrated from HTML/CSS/JS to React Native with TypeScript
+- Replaced localStorage with AsyncStorage
+- Improved type safety with TypeScript
+- Modern React patterns with hooks
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## Development
+
+- **Linting**: `npx expo lint`
+- **Type Checking**: TypeScript is enabled with strict mode
+
+## License
+
+Apache-2.0
