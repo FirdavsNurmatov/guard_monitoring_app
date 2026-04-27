@@ -1,4 +1,4 @@
-# Guard Monitoring App
+# GuardTrack
 
 React Native based Guard Monitoring application migrated from Cordova. This app allows security guards to check in at checkpoints using NFC tags and GPS tracking.
 

@@ -124,6 +124,20 @@ export default function CheckinScreen() {
           clearInterval(nfcCheckTimer.current);
           nfcCheckTimer.current = null;
         }
+        // If NFC is disabled, prompt user to enable it
+        if (!enabled) {
+          Alert.alert(
+            t('nfc_unavailable_short'),
+            t('nfc_settings_manual'),
+            [
+              { text: t('cancel'), style: 'cancel' },
+              {
+                text: t('enable_nfc'),
+                onPress: openNFCSettings
+              }
+            ]
+          );
+        }
       } else {
         setNfcEnabled(false);
       }
@@ -169,10 +183,21 @@ export default function CheckinScreen() {
     setIsScanning(true);
     setMessage(t('tap_tag'));
 
+    const SCAN_TIMEOUT = 20000; // 20 seconds
+
     try {
-      // Try without specific technology first
-      await NfcManager.requestTechnology(['NfcA', 'MifareClassic'] as any);
-      const tag = await NfcManager.getTag();
+      // Add timeout to prevent infinite loop
+      const scanPromise = (async () => {
+        await NfcManager.requestTechnology(['NfcA', 'MifareClassic'] as any);
+        const tag = await NfcManager.getTag();
+        return tag;
+      })();
+
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Scan timeout')), SCAN_TIMEOUT);
+      });
+
+      const tag = await Promise.race([scanPromise, timeoutPromise]) as any;
       console.log('Tag detected:', tag);
       if (tag && tag.id) {
         await handleNFCCheckin(tag.id);
@@ -181,7 +206,11 @@ export default function CheckinScreen() {
       }
     } catch (err) {
       console.error('NFC scan error:', err);
-      setMessage('⚠️ ' + t('scan_failed'));
+      if ((err as Error).message === 'Scan timeout') {
+        setMessage(t('tap_tag')); // Reset to tap tag message
+      } else {
+        setMessage('⚠️ ' + t('scan_failed'));
+      }
     } finally {
       setIsScanning(false);
       await NfcManager.cancelTechnologyRequest().catch(() => {});
@@ -455,16 +484,7 @@ export default function CheckinScreen() {
         />
 
         {!nfcEnabled && (
-          <>
-            <ErrorMessage message={t('nfc_unavailable_short')} type="warning" />
-            <Button
-              title={t('enable_nfc')}
-              onPress={openNFCSettings}
-              variant="secondary"
-              size="small"
-              style={styles.settingsButton}
-            />
-          </>
+          <ErrorMessage message={t('nfc_unavailable_short')} type="warning" />
         )}
 
         {!gpsEnabled && (
@@ -560,9 +580,6 @@ const styles = StyleSheet.create({
   },
   scanButton: {
     marginTop: Spacing.lg,
-  },
-  settingsButton: {
-    marginTop: Spacing.md,
   },
   logsContainer: {
     marginTop: Spacing.xl,
