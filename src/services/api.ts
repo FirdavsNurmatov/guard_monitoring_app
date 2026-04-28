@@ -72,7 +72,7 @@ export const ApiService = {
         // Handle 401 Unauthorized - auto logout
         if (response.status === 401) {
           console.error("401 Unauthorized - logging out");
-          // Clear all auth data
+          // Clear all auth data - keep organization_id for re-login
           await AsyncStorage.multiRemove([
             "id",
             "login",
@@ -81,7 +81,6 @@ export const ApiService = {
             "selectedLogin",
             "selectedUsername",
             "access_token",
-            "organization_id",
           ]);
           throw new Error("Session expired - logged out");
         }
@@ -115,7 +114,7 @@ export const ApiService = {
         // Handle 401 Unauthorized - auto logout
         if (response.status === 401) {
           console.error("401 Unauthorized - logging out");
-          // Clear all auth data
+          // Clear all auth data - keep organization_id for re-login
           await AsyncStorage.multiRemove([
             "id",
             "login",
@@ -124,7 +123,6 @@ export const ApiService = {
             "selectedLogin",
             "selectedUsername",
             "access_token",
-            "organization_id",
           ]);
           throw new Error("Session expired - logged out");
         }
