@@ -15,7 +15,6 @@ import { StorageService } from '../services/storage';
 const successSound = require('../../assets/audio/success.mp3');
 const errorSound = require('../../assets/audio/error.mp3');
 
-
 interface CheckinLog {
   id: string;
   userId: number;
@@ -27,9 +26,17 @@ interface CheckinLog {
   synced: boolean;
 }
 
+// Status display map — takrorlashni oldini olish
+const STATUS_MAP: Record<string, { icon: string; labelKey: string }> = {
+  success: { icon: '✅', labelKey: 'success' },
+  offline: { icon: '📴', labelKey: 'offline' },
+  failed: { icon: '❌', labelKey: 'failed' },
+};
+
 export default function CheckinScreen() {
   const { t } = useTranslation();
   const router = useRouter();
+
   const [username, setUsername] = useState('');
   const [userId, setUserId] = useState<number | null>(null);
   const [message, setMessage] = useState('');
@@ -39,22 +46,31 @@ export default function CheckinScreen() {
   const [isScanning, setIsScanning] = useState(false);
   const [logs, setLogs] = useState<CheckinLog[]>([]);
   const [currentLocation, setCurrentLocation] = useState<{ latitude: number; longitude: number } | null>(null);
-  
+
   const lastScanTime = useRef(0);
   const gpsTrackingTimer = useRef<number | null>(null);
   const nfcCheckTimer = useRef<number | null>(null);
 
   useEffect(() => {
     checkAuth();
-    checkGPS();
     loadLogs();
     startNFCCheck();
-    setupBackHandler();
-    
+
+    // ✅ BackHandler to'g'ri cleanup bilan
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
+      handleLogout();
+      return true;
+    });
+
     return () => {
+      backHandler.remove();
       cleanup();
     };
   }, []);
+
+  // ---------------------------------------------------------------------------
+  // Sound
+  // ---------------------------------------------------------------------------
 
   const playSound = async (soundName: 'success' | 'error') => {
     try {
@@ -71,37 +87,41 @@ export default function CheckinScreen() {
     }
   };
 
+  // ---------------------------------------------------------------------------
+  // Auth
+  // ---------------------------------------------------------------------------
+
   const checkAuth = async () => {
     try {
       const organization_id = await StorageService.getOrganizationId();
-      console.log('checkAuth: organization_id', organization_id);
       if (!organization_id) {
-        // @ts-ignore - TypeScript typed routes issue
+        // @ts-ignore
         router.replace('/login');
         return;
       }
 
       const user = await StorageService.getUser();
-      console.log('checkAuth: user from storage', user);
       if (user) {
         setUsername(user.username);
         setUserId(user.id);
-        console.log('checkAuth: userId set to', user.id);
-        startGPSTracking();
+        // ✅ user.id ni to'g'ridan-to'g'ri uzatamiz — state ni kutmaymiz
+        startGPSTracking(user.id);
       } else {
-        console.error('checkAuth: user not found in storage');
-        // @ts-ignore - TypeScript typed routes issue
+        // @ts-ignore
         router.replace('/');
+        return;
       }
 
       const savedLog = await StorageService.getLastLog();
-      if (savedLog) {
-        setLastLog(savedLog);
-      }
+      if (savedLog) setLastLog(savedLog);
     } catch (err) {
       console.error('Error checking auth', err);
     }
   };
+
+  // ---------------------------------------------------------------------------
+  // Logs
+  // ---------------------------------------------------------------------------
 
   const loadLogs = async () => {
     try {
@@ -112,34 +132,37 @@ export default function CheckinScreen() {
     }
   };
 
+  // ---------------------------------------------------------------------------
+  // NFC
+  // ---------------------------------------------------------------------------
+
   const checkNFCStatus = async () => {
     try {
       const supported = await NfcManager.isSupported();
-      if (supported) {
-        await NfcManager.start();
-        // Check if NFC is enabled in settings
-        const enabled = await NfcManager.isEnabled();
-        setNfcEnabled(enabled);
-        if (enabled && nfcCheckTimer.current) {
-          clearInterval(nfcCheckTimer.current);
-          nfcCheckTimer.current = null;
-        }
-        // If NFC is disabled, prompt user to enable it
-        if (!enabled) {
-          Alert.alert(
-            t('nfc_unavailable_short'),
-            t('nfc_settings_manual'),
-            [
-              { text: t('cancel'), style: 'cancel' },
-              {
-                text: t('enable_nfc'),
-                onPress: openNFCSettings
-              }
-            ]
-          );
-        }
-      } else {
+      if (!supported) {
         setNfcEnabled(false);
+        return;
+      }
+
+      await NfcManager.start();
+      const enabled = await NfcManager.isEnabled();
+      setNfcEnabled(enabled);
+
+      if (enabled && nfcCheckTimer.current) {
+        clearInterval(nfcCheckTimer.current);
+        nfcCheckTimer.current = null;
+        return;
+      }
+
+      if (!enabled) {
+        Alert.alert(
+          t('nfc_unavailable_short'),
+          t('nfc_settings_manual'),
+          [
+            { text: t('cancel'), style: 'cancel' },
+            { text: t('enable_nfc'), onPress: openNFCSettings },
+          ]
+        );
       }
     } catch (err) {
       console.error('NFC check error', err);
@@ -160,12 +183,19 @@ export default function CheckinScreen() {
     }
   };
 
-  const startNFCCheck = () => {
-    if (nfcCheckTimer.current) return;
-    
-    nfcCheckTimer.current = setInterval(async () => {
-      await checkNFCStatus();
-    }, 5000); // 5 seconds
+  const startNFCCheck = async () => {
+    // ✅ Darhol tekshirish — 5 soniya kutilmaydi
+    await checkNFCStatus();
+
+    // ✅ Faqat NFC qo'llab-quvvatlansa timer ishga tushadi
+    const supported = await NfcManager.isSupported();
+    if (!supported) return;
+
+    if (!nfcCheckTimer.current) {
+      nfcCheckTimer.current = setInterval(async () => {
+        await checkNFCStatus();
+      }, 5000);
+    }
   };
 
   const handleStartScan = async () => {
@@ -174,7 +204,6 @@ export default function CheckinScreen() {
       return;
     }
 
-    // Stop NFC check timer during scan
     if (nfcCheckTimer.current) {
       clearInterval(nfcCheckTimer.current);
       nfcCheckTimer.current = null;
@@ -183,10 +212,9 @@ export default function CheckinScreen() {
     setIsScanning(true);
     setMessage(t('tap_tag'));
 
-    const SCAN_TIMEOUT = 20000; // 20 seconds
+    const SCAN_TIMEOUT = 20000;
 
     try {
-      // Add timeout to prevent infinite loop
       const scanPromise = (async () => {
         await NfcManager.requestTechnology(['NfcA', 'MifareClassic'] as any);
         const tag = await NfcManager.getTag();
@@ -198,7 +226,7 @@ export default function CheckinScreen() {
       });
 
       const tag = await Promise.race([scanPromise, timeoutPromise]) as any;
-      console.log('Tag detected:', tag);
+
       if (tag && tag.id) {
         await handleNFCCheckin(tag.id);
       } else {
@@ -207,63 +235,56 @@ export default function CheckinScreen() {
     } catch (err) {
       console.error('NFC scan error:', err);
       if ((err as Error).message === 'Scan timeout') {
-        setMessage(t('tap_tag')); // Reset to tap tag message
+        setMessage(t('tap_tag'));
       } else {
         setMessage('⚠️ ' + t('scan_failed'));
       }
     } finally {
       setIsScanning(false);
-      await NfcManager.cancelTechnologyRequest().catch(() => {});
-      // Restart NFC check timer after scan
+      await NfcManager.cancelTechnologyRequest().catch(() => { });
       startNFCCheck();
     }
   };
 
-  const checkGPS = async () => {
+  // ---------------------------------------------------------------------------
+  // GPS — umumiy helper, userId parametr sifatida keladi
+  // ---------------------------------------------------------------------------
+
+  const fetchAndSendLocation = async (currentUserId: number) => {
+    const position = await Location.getCurrentPositionAsync({});
+    const location = {
+      latitude: position.coords.latitude,
+      longitude: position.coords.longitude,
+    };
+
+    setCurrentLocation(location);
+    setGpsEnabled(true);
+
     try {
-      const position = await Location.getCurrentPositionAsync({});
-      setCurrentLocation({
-        latitude: position.coords.latitude,
-        longitude: position.coords.longitude,
-      });
-      setGpsEnabled(true);
+      await ApiService.updateLocation(currentUserId, location.latitude, location.longitude);
     } catch (err) {
-      console.warn('GPS not enabled');
-      setGpsEnabled(false);
+      console.error('Failed to send location to server:', err);
     }
   };
 
-  const startGPSTracking = () => {
+  const startGPSTracking = (currentUserId: number) => {
     if (gpsTrackingTimer.current) return;
-    
+
+    // ✅ Darhol bir marta — 15 soniya kutilmaydi
+    fetchAndSendLocation(currentUserId).catch((err) => {
+      console.warn('GPS not enabled:', err);
+      setGpsEnabled(false);
+    });
+
+    // ✅ Keyin har 15 soniyada
     gpsTrackingTimer.current = setInterval(async () => {
       try {
-        const position = await Location.getCurrentPositionAsync({});
-        const location = {
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-        };
-        setCurrentLocation(location);
-        console.log('GPS location updated:', location);
-
-        // Send location to server
-        const user = await StorageService.getUser();
-        const currentUserId = user?.id || userId;
-        console.log('Location update: userId =', currentUserId, 'location =', location);
-        if (currentUserId) {
-          try {
-            await ApiService.updateLocation(currentUserId, location.latitude, location.longitude);
-            console.log('Location sent to server successfully');
-          } catch (err) {
-            console.error('Failed to send location to server:', err);
-          }
-        } else {
-          console.warn('userId is null, skipping location update');
-        }
+        await fetchAndSendLocation(currentUserId);
       } catch (err) {
         console.error('GPS tracking error', err);
+        setGpsEnabled(false);
       }
-    }, 15000); // 15 seconds
+    }, 15000);
   };
 
   const stopGPSTracking = () => {
@@ -273,13 +294,14 @@ export default function CheckinScreen() {
     }
   };
 
-  const handleNFCCheckin = async (tagId: string) => {
-    // Get userId from storage in case state was lost during NFC scan
-    const user = await StorageService.getUser();
-    const currentUserId = user?.id || userId;
+  // ---------------------------------------------------------------------------
+  // Checkin
+  // ---------------------------------------------------------------------------
 
-    if (!currentUserId) {
-      console.error('User ID is missing from both state and storage');
+  const handleNFCCheckin = async (tagId: string) => {
+    // ✅ Storage ga murojaat yo'q — userId state dan olinadi
+    if (!userId) {
+      console.error('User ID is missing');
       setMessage('❌ ' + t('user_id_missing'));
       return;
     }
@@ -296,7 +318,7 @@ export default function CheckinScreen() {
 
     try {
       const cardNum = tryConvertToDecimal(tagId);
-      
+
       let attempt = 0;
       let success = false;
 
@@ -304,22 +326,21 @@ export default function CheckinScreen() {
         attempt++;
         try {
           const data = await ApiService.checkin(
-            currentUserId,
+            userId,
             cardNum,
             currentLocation?.latitude,
             currentLocation?.longitude
           );
 
           if (data.success) {
-            const now = new Date(data.res!.createdAt).toLocaleString('uz-UZ');
-            const finalLog = `${t('last_log_prefix')}: ${data.res!.checkpoint.name} (${now})`;
+            const dateStr = new Date(data.res!.createdAt).toLocaleString('uz-UZ');
+            const finalLog = `${t('last_log_prefix')}: ${data.res!.checkpoint.name} (${dateStr})`;
             setLastLog(finalLog);
             await StorageService.setLastLog(finalLog);
 
-            // Save to checkin logs
             const checkinLog: CheckinLog = {
               id: Date.now().toString(),
-              userId: currentUserId,
+              userId,
               username,
               checkpointName: data.res!.checkpoint.name,
               checkpointCardNum: cardNum,
@@ -328,13 +349,11 @@ export default function CheckinScreen() {
               synced: true,
             };
             await StorageService.addCheckinLog(checkinLog);
-            await loadLogs(); // Reload logs after checkin
+            await loadLogs();
 
             setMessage(t('checkin_success'));
             playSound('success');
-            if (Vibration.vibrate) {
-              Vibration.vibrate([100, 50, 100]);
-            }
+            Vibration.vibrate([100, 50, 100]);
 
             setTimeout(() => {
               setMessage(t('tap_tag'));
@@ -347,15 +366,13 @@ export default function CheckinScreen() {
         } catch (err) {
           if (attempt < CONFIG.CHECKIN.MAX_RETRIES) {
             setMessage(`${t('retry_connection')} (${attempt}/${CONFIG.CHECKIN.MAX_RETRIES})`);
-            await new Promise(resolve => setTimeout(resolve, CONFIG.CHECKIN.RETRY_DELAY));
+            await new Promise((resolve) => setTimeout(resolve, CONFIG.CHECKIN.RETRY_DELAY));
           } else {
-            // Store offline
-            await StorageService.storeOfflineCheckin({ userId: currentUserId, checkpointCardNum: cardNum });
+            await StorageService.storeOfflineCheckin({ userId, checkpointCardNum: cardNum });
 
-            // Save to checkin logs
             const checkinLog: CheckinLog = {
               id: Date.now().toString(),
-              userId: currentUserId,
+              userId,
               username,
               checkpointName: 'Unknown',
               checkpointCardNum: cardNum,
@@ -364,13 +381,11 @@ export default function CheckinScreen() {
               synced: false,
             };
             await StorageService.addCheckinLog(checkinLog);
-            await loadLogs(); // Reload logs after offline checkin
+            await loadLogs();
 
             setMessage(t('offline_checkin_saved'));
             playSound('error');
-            if (Vibration.vibrate) {
-              Vibration.vibrate([200, 100, 200]);
-            }
+            Vibration.vibrate([200, 100, 200]);
           }
         }
       }
@@ -384,14 +399,14 @@ export default function CheckinScreen() {
   };
 
   const tryConvertToDecimal = (value: string): string => {
-    if (/^[0-9A-Fa-f]+$/.test(value)) {
-      return parseInt(value, 16).toString();
-    }
-    if (/^\d+$/.test(value)) {
-      return value;
-    }
+    if (/^[0-9A-Fa-f]+$/.test(value)) return parseInt(value, 16).toString();
+    if (/^\d+$/.test(value)) return value;
     return value;
   };
+
+  // ---------------------------------------------------------------------------
+  // Navigation
+  // ---------------------------------------------------------------------------
 
   const handleLogout = () => {
     Alert.alert(
@@ -404,42 +419,33 @@ export default function CheckinScreen() {
           style: 'destructive',
           onPress: async () => {
             await StorageService.clearAll();
-            // @ts-ignore - TypeScript typed routes issue
+            // @ts-ignore
             router.replace('/');
-          }
-        }
+          },
+        },
       ]
     );
   };
 
-  const handleHistory = () => {
-    // @ts-ignore - TypeScript typed routes issue
-    router.replace('/history');
-  };
-
-  const setupBackHandler = () => {
-    const backAction = () => {
-      handleLogout();
-      return true;
-    };
-
-    const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction);
-    return () => backHandler.remove();
-  };
+  // ---------------------------------------------------------------------------
+  // Cleanup
+  // ---------------------------------------------------------------------------
 
   const cleanup = () => {
-    if (gpsTrackingTimer.current) {
-      clearInterval(gpsTrackingTimer.current);
-    }
+    stopGPSTracking();
     if (nfcCheckTimer.current) {
       clearInterval(nfcCheckTimer.current);
+      nfcCheckTimer.current = null;
     }
-    NfcManager.cancelTechnologyRequest().catch(() => {});
+    NfcManager.cancelTechnologyRequest().catch(() => { });
   };
 
+  // ---------------------------------------------------------------------------
+  // Helpers
+  // ---------------------------------------------------------------------------
+
   const formatLogTime = (timestamp: number) => {
-    const date = new Date(timestamp);
-    return date.toLocaleString('uz-UZ', {
+    return new Date(timestamp).toLocaleString('uz-UZ', {
       day: '2-digit',
       month: '2-digit',
       year: 'numeric',
@@ -450,16 +456,16 @@ export default function CheckinScreen() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'success':
-        return Colors.success || '#22c55e';
-      case 'offline':
-        return Colors.warning || '#f59e0b';
-      case 'failed':
-        return Colors.danger || '#ef4444';
-      default:
-        return Colors.textSecondary || '#6b7280';
+      case 'success': return Colors.success || '#22c55e';
+      case 'offline': return Colors.warning || '#f59e0b';
+      case 'failed': return Colors.danger || '#ef4444';
+      default: return Colors.textSecondary || '#6b7280';
     }
   };
+
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
 
   return (
     <View style={styles.container}>
@@ -497,21 +503,24 @@ export default function CheckinScreen() {
             {logs.length === 0 ? (
               <Text style={styles.noLogs}>{t('no_logs')}</Text>
             ) : (
-              logs.map((log, index) => (
-                <View key={log.id} style={styles.logItem}>
-                  <View style={[styles.logDot, { backgroundColor: getStatusColor(log.status) }]} />
-                  <View style={styles.logContent}>
-                    <Text style={styles.logCheckpoint}>{log.checkpointName}</Text>
-                    <Text style={styles.logTime}>{formatLogTime(log.timestamp)}</Text>
-                    <Text style={styles.logStatus}>
-                      {log.status === 'success' && '✅ '}
-                      {log.status === 'offline' && '📴 '}
-                      {log.status === 'failed' && '❌ '}
-                      {log.status}
-                    </Text>
+              logs.map((log) => {
+                const statusInfo = STATUS_MAP[log.status];
+                return (
+                  <View key={log.id} style={styles.logItem}>
+                    <View style={[styles.logDot, { backgroundColor: getStatusColor(log.status) }]} />
+                    <View style={styles.logContent}>
+                      <Text style={styles.logCheckpoint}>{log.checkpointName}</Text>
+                      <Text style={styles.logTime}>{formatLogTime(log.timestamp)}</Text>
+                      {/* ✅ STATUS_MAP orqali — takrorsiz */}
+                      {statusInfo && (
+                        <Text style={styles.logStatus}>
+                          {statusInfo.icon} {t(statusInfo.labelKey)}
+                        </Text>
+                      )}
+                    </View>
                   </View>
-                </View>
-              ))
+                );
+              })
             )}
           </ScrollView>
         </View>
@@ -519,7 +528,7 @@ export default function CheckinScreen() {
 
       <View style={styles.footer}>
         <Text style={styles.footerText}>
-          {t('last_log')}: {lastLog || t('no_last_log')}
+          {lastLog || t('no_last_log')}
         </Text>
       </View>
     </View>
