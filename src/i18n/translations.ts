@@ -31,7 +31,7 @@ export const TRANSLATIONS: Record<LanguageCode, Translation> = {
     offline: "Offline",
     failed: "Xatolik",
     not_synced: "Sinxronizatsiya qilinmadi",
-    scan_nfc_tag: "NFC tag skan qilish",
+    scan_nfc_tag: "NFC tegni skanerlang",
     scanning: "Skan qilinmoqda...",
     scan_failed: "Skan xatoligi",
     already_logged_in: "Siz allaqachon tizimga kirdingiz", // ✏️ "kirgansiz" → "kirdingiz"
@@ -137,7 +137,7 @@ export const TRANSLATIONS: Record<LanguageCode, Translation> = {
     offline: "Офлайн", // ✏️ "Офлайн" (bir "ф")
     failed: "Ошибка",
     not_synced: "Не синхронизировано",
-    scan_nfc_tag: "Сканировать NFC тег",
+    scan_nfc_tag: "Сканируйте NFC тег",
     scanning: "Сканирование...",
     scan_failed: "Ошибка сканирования",
     already_logged_in: "Вы уже вошли в систему",
@@ -242,7 +242,7 @@ export const TRANSLATIONS: Record<LanguageCode, Translation> = {
     offline: "Офлайн",
     failed: "Хатолик",
     not_synced: "Синхронизация қилинмади",
-    scan_nfc_tag: "NFC тег скан қилиш",
+    scan_nfc_tag: "NFC тегни сканерланг",
     scanning: "Скан қилинмоқда...",
     scan_failed: "Скан хатолиги",
     already_logged_in: "Сиз аллақачон тизимга кирдингиз", // ✏️ "киргансиз" → "кирдингиз"

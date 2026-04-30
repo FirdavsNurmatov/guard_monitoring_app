@@ -2,7 +2,10 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { CheckinLog, OfflineCheckin, User } from "../types";
 
 export const StorageService = {
+  // ---------------------------------------------------------------------------
   // Organization
+  // ---------------------------------------------------------------------------
+
   async setOrganizationId(organization_id: string) {
     await AsyncStorage.setItem("organization_id", organization_id);
   },
@@ -15,7 +18,10 @@ export const StorageService = {
     await AsyncStorage.removeItem("organization_id");
   },
 
+  // ---------------------------------------------------------------------------
   // Auth
+  // ---------------------------------------------------------------------------
+
   async setAccessToken(token: string) {
     await AsyncStorage.setItem("access_token", token);
   },
@@ -28,21 +34,20 @@ export const StorageService = {
     await AsyncStorage.removeItem("access_token");
   },
 
+  // ---------------------------------------------------------------------------
   // User
+  // ---------------------------------------------------------------------------
+
   async setUser(user: User) {
-    console.log("StorageService.setUser:", user);
     await AsyncStorage.setItem("id", user.id.toString());
     await AsyncStorage.setItem("login", user.login);
     await AsyncStorage.setItem("username", user.username);
-    console.log("StorageService.setUser: user stored successfully");
   },
 
   async getUser(): Promise<User | null> {
     const id = await AsyncStorage.getItem("id");
     const login = await AsyncStorage.getItem("login");
     const username = await AsyncStorage.getItem("username");
-
-    console.log("StorageService.getUser:", { id, login, username });
 
     if (id && login && username) {
       return { id: parseInt(id), login, username };
@@ -51,12 +56,13 @@ export const StorageService = {
   },
 
   async removeUser() {
-    await AsyncStorage.removeItem("id");
-    await AsyncStorage.removeItem("login");
-    await AsyncStorage.removeItem("username");
+    await AsyncStorage.multiRemove(["id", "login", "username"]);
   },
 
+  // ---------------------------------------------------------------------------
   // Selected user for PIN
+  // ---------------------------------------------------------------------------
+
   async setSelectedUser(login: string, username: string) {
     await AsyncStorage.setItem("selectedLogin", login);
     await AsyncStorage.setItem("selectedUsername", username);
@@ -73,11 +79,13 @@ export const StorageService = {
   },
 
   async removeSelectedUser() {
-    await AsyncStorage.removeItem("selectedLogin");
-    await AsyncStorage.removeItem("selectedUsername");
+    await AsyncStorage.multiRemove(["selectedLogin", "selectedUsername"]);
   },
 
+  // ---------------------------------------------------------------------------
   // Last log
+  // ---------------------------------------------------------------------------
+
   async setLastLog(log: string) {
     await AsyncStorage.setItem("lastLog", log);
   },
@@ -90,23 +98,21 @@ export const StorageService = {
     await AsyncStorage.removeItem("lastLog");
   },
 
-  // Offline checkin data
-  async storeOfflineCheckin(data: OfflineCheckin) {
+  // ---------------------------------------------------------------------------
+  // Offline checkins
+  // ✅ id qo'shildi — sync da qaysinisini o'chirishni bilamiz
+  // ---------------------------------------------------------------------------
+
+  async storeOfflineCheckin(data: OfflineCheckin): Promise<void> {
     try {
-      const offlineDataJson = await AsyncStorage.getItem(
-        "offline_checkin_data",
-      );
-      const offlineData = offlineDataJson ? JSON.parse(offlineDataJson) : [];
-      offlineData.push(data);
+      const existing = await this.getOfflineCheckins();
+      existing.push(data);
 
-      // Keep only last 100 records
-      if (offlineData.length > 100) {
-        offlineData.shift();
-      }
-
+      // Oxirgi 100 ta saqlanadi
+      const trimmed = existing.slice(-100);
       await AsyncStorage.setItem(
         "offline_checkin_data",
-        JSON.stringify(offlineData),
+        JSON.stringify(trimmed),
       );
     } catch (err) {
       console.error("Failed to store offline checkin:", err);
@@ -115,26 +121,40 @@ export const StorageService = {
 
   async getOfflineCheckins(): Promise<OfflineCheckin[]> {
     try {
-      const offlineDataJson = await AsyncStorage.getItem(
-        "offline_checkin_data",
-      );
-      return offlineDataJson ? JSON.parse(offlineDataJson) : [];
-    } catch (err) {
+      const json = await AsyncStorage.getItem("offline_checkin_data");
+      return json ? JSON.parse(json) : [];
+    } catch {
       return [];
     }
   },
 
-  async clearOfflineCheckins() {
+  // ✅ Yangi — sync bo'lgandan keyin bitta offline checkinni o'chirish
+  async removeOfflineCheckin(id: string): Promise<void> {
+    try {
+      const existing = await this.getOfflineCheckins();
+      const filtered = existing.filter((item) => item.id !== id);
+      await AsyncStorage.setItem(
+        "offline_checkin_data",
+        JSON.stringify(filtered),
+      );
+    } catch (err) {
+      console.error("Failed to remove offline checkin:", err);
+    }
+  },
+
+  async clearOfflineCheckins(): Promise<void> {
     await AsyncStorage.removeItem("offline_checkin_data");
   },
 
+  // ---------------------------------------------------------------------------
   // Checkin logs
+  // ---------------------------------------------------------------------------
+
   async getCheckinLogs(): Promise<CheckinLog[]> {
     try {
-      const logsJson = await AsyncStorage.getItem("checkin_logs");
-      return logsJson ? JSON.parse(logsJson) : [];
-    } catch (err) {
-      console.error("Failed to get checkin logs:", err);
+      const json = await AsyncStorage.getItem("checkin_logs");
+      return json ? JSON.parse(json) : [];
+    } catch {
       return [];
     }
   },
@@ -142,12 +162,35 @@ export const StorageService = {
   async addCheckinLog(log: CheckinLog): Promise<void> {
     try {
       const logs = await this.getCheckinLogs();
-      logs.unshift(log); // Add to beginning
-      // Keep only last 100 logs
-      const trimmedLogs = logs.slice(0, 100);
-      await AsyncStorage.setItem("checkin_logs", JSON.stringify(trimmedLogs));
+      logs.unshift(log); // Boshiga qo'shamiz
+      const trimmed = logs.slice(0, 100);
+      await AsyncStorage.setItem("checkin_logs", JSON.stringify(trimmed));
     } catch (err) {
       console.error("Failed to add checkin log:", err);
+    }
+  },
+
+  // ✅ Yangi — offline log sync bo'lganda yangilanadi
+  async updateCheckinLogSynced(
+    id: string,
+    checkpointName?: string,
+  ): Promise<void> {
+    try {
+      const logs = await this.getCheckinLogs();
+      const updated = logs.map((log) =>
+        log.id === id
+          ? {
+              ...log,
+              status: "success" as const,
+              synced: true,
+              // ✅ Server dan nom kelsa yangilanadi, kelmasa Unknown qoladi
+              checkpointName: checkpointName || log.checkpointName,
+            }
+          : log,
+      );
+      await AsyncStorage.setItem("checkin_logs", JSON.stringify(updated));
+    } catch (err) {
+      console.error("Failed to update checkin log:", err);
     }
   },
 
@@ -155,19 +198,22 @@ export const StorageService = {
     await AsyncStorage.removeItem("checkin_logs");
   },
 
-  // Clear all auth data
-  async clearAuthData() {
+  // ---------------------------------------------------------------------------
+  // Clear
+  // ✅ clearAll da offline checkinlar saqlanadi — logout da yo'qolmaydi
+  // ---------------------------------------------------------------------------
+
+  async clearAuthData(): Promise<void> {
     await this.removeAccessToken();
     await this.removeUser();
     await this.removeLastLog();
     await this.removeSelectedUser();
   },
 
-  // Clear all data (logout) - keep organization_id
-  async clearAll() {
+  async clearAll(): Promise<void> {
     await this.clearAuthData();
-    // await this.removeOrganizationId(); // Keep organization_id for re-login
-    await this.clearOfflineCheckins();
+    // ✅ Offline checkinlar o'chirilmaydi — keyingi login da sync bo'ladi
+    // await this.clearOfflineCheckins();
     await this.clearCheckinLogs();
   },
 };

@@ -1,9 +1,19 @@
 import { Audio } from 'expo-av';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Alert, BackHandler, Linking, ScrollView, StyleSheet, Text, Vibration, View } from 'react-native';
+import {
+  Alert,
+  AppState,
+  BackHandler,
+  Linking,
+  ScrollView,
+  StyleSheet,
+  Text,
+  Vibration,
+  View,
+} from 'react-native';
 import NfcManager from 'react-native-nfc-manager';
 import { Button, ErrorMessage } from '../components';
 import { Colors, FontSize, Spacing } from '../constants';
@@ -11,7 +21,6 @@ import { CONFIG } from '../constants/config';
 import { ApiService } from '../services/api';
 import { StorageService } from '../services/storage';
 
-// Audio files
 const successSound = require('../../assets/audio/success.mp3');
 const errorSound = require('../../assets/audio/error.mp3');
 
@@ -26,7 +35,6 @@ interface CheckinLog {
   synced: boolean;
 }
 
-// Status display map — takrorlashni oldini olish
 const STATUS_MAP: Record<string, { icon: string; labelKey: string }> = {
   success: { icon: '✅', labelKey: 'success' },
   offline: { icon: '📴', labelKey: 'offline' },
@@ -38,77 +46,106 @@ export default function CheckinScreen() {
   const router = useRouter();
 
   const [username, setUsername] = useState('');
-  const [userId, setUserId] = useState<number | null>(null);
   const [message, setMessage] = useState('');
   const [lastLog, setLastLog] = useState('');
   const [nfcEnabled, setNfcEnabled] = useState(false);
+  const [nfcSupported, setNfcSupported] = useState(true);
   const [gpsEnabled, setGpsEnabled] = useState(false);
-  const [isScanning, setIsScanning] = useState(false);
   const [logs, setLogs] = useState<CheckinLog[]>([]);
-  const [currentLocation, setCurrentLocation] = useState<{ latitude: number; longitude: number } | null>(null);
 
+  // ─── Refs (stale closure yo'q) ───────────────────────────────────────────
+  const userIdRef = useRef<number | null>(null);
+  const usernameRef = useRef<string>('');
+  /** FIX: lat/lng uchun ref — useState stale closure beradi */
+  const currentLocationRef = useRef<{ latitude: number; longitude: number } | null>(null);
+
+  const isActiveRef = useRef(true);
+  const isScanningRef = useRef(false);
   const lastScanTime = useRef(0);
-  const gpsTrackingTimer = useRef<number | null>(null);
-  const nfcCheckTimer = useRef<number | null>(null);
+  /** FIX: NfcManager.start() faqat bir marta chaqirilsin */
+  const nfcStartedRef = useRef(false);
 
+  const gpsTrackingTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const nfcCheckTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const successSoundRef = useRef<Audio.Sound | null>(null);
+  const errorSoundRef = useRef<Audio.Sound | null>(null);
+
+  // ─── Lifecycle ───────────────────────────────────────────────────────────
   useEffect(() => {
+    isActiveRef.current = true;
     checkAuth();
     loadLogs();
     startNFCCheck();
 
-    // ✅ BackHandler to'g'ri cleanup bilan
     const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
       handleLogout();
       return true;
     });
 
+    const appStateSub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') syncOfflineCheckins();
+    });
+
     return () => {
       backHandler.remove();
+      appStateSub.remove();
       cleanup();
     };
   }, []);
 
-  // ---------------------------------------------------------------------------
-  // Sound
-  // ---------------------------------------------------------------------------
+  /** NFC yoqilganda skanerlashni boshlash */
+  useEffect(() => {
+    if (nfcEnabled && !isScanningRef.current) {
+      handleStartScan();
+    }
+  }, [nfcEnabled]);
 
+  // ─── Sound ───────────────────────────────────────────────────────────────
   const playSound = async (soundName: 'success' | 'error') => {
     try {
+      const soundRef = soundName === 'success' ? successSoundRef : errorSoundRef;
       const soundFile = soundName === 'success' ? successSound : errorSound;
+
+      // Avvalgi ovozni to'xtatamiz
+      if (soundRef.current) {
+        await soundRef.current.unloadAsync();
+        soundRef.current = null;
+      }
+
       const { sound } = await Audio.Sound.createAsync(soundFile);
-      await sound.playAsync();
+      soundRef.current = sound;
+
       sound.setOnPlaybackStatusUpdate(async (status) => {
         if (status.isLoaded && status.didJustFinish) {
           await sound.unloadAsync();
+          soundRef.current = null;
         }
       });
+
+      await sound.playAsync();
     } catch (err) {
       console.error('Error playing sound:', err);
     }
   };
 
-  // ---------------------------------------------------------------------------
-  // Auth
-  // ---------------------------------------------------------------------------
-
+  // ─── Auth ─────────────────────────────────────────────────────────────────
   const checkAuth = async () => {
     try {
       const organization_id = await StorageService.getOrganizationId();
       if (!organization_id) {
-        // @ts-ignore
-        router.replace('/login');
+        router.replace('/login' as any);
         return;
       }
 
       const user = await StorageService.getUser();
       if (user) {
         setUsername(user.username);
-        setUserId(user.id);
-        // ✅ user.id ni to'g'ridan-to'g'ri uzatamiz — state ni kutmaymiz
+        userIdRef.current = user.id;
+        usernameRef.current = user.username;
         startGPSTracking(user.id);
       } else {
-        // @ts-ignore
-        router.replace('/');
+        router.replace('/' as any);
         return;
       }
 
@@ -119,10 +156,7 @@ export default function CheckinScreen() {
     }
   };
 
-  // ---------------------------------------------------------------------------
-  // Logs
-  // ---------------------------------------------------------------------------
-
+  // ─── Logs ─────────────────────────────────────────────────────────────────
   const loadLogs = async () => {
     try {
       const checkinLogs = await StorageService.getCheckinLogs();
@@ -132,41 +166,37 @@ export default function CheckinScreen() {
     }
   };
 
-  // ---------------------------------------------------------------------------
-  // NFC
-  // ---------------------------------------------------------------------------
+  // ─── NFC ──────────────────────────────────────────────────────────────────
 
-  const checkNFCStatus = async () => {
+  /**
+   * FIX: NfcManager.start() faqat bir marta chaqiriladi.
+   * Har safar checkNFCStatus yoki polling da chaqirilsa xato chiqishi mumkin.
+   */
+  const ensureNfcStarted = async (): Promise<boolean> => {
+    if (nfcStartedRef.current) return true;
     try {
-      const supported = await NfcManager.isSupported();
-      if (!supported) {
-        setNfcEnabled(false);
-        return;
-      }
-
       await NfcManager.start();
+      nfcStartedRef.current = true;
+      return true;
+    } catch (err) {
+      console.error('NfcManager.start() failed:', err);
+      return false;
+    }
+  };
+
+  /**
+   * FIX: Eski kodda checkNFCStatus ichida NfcManager.start() har safar
+   * chaqirilardi va u isSupported ni qaytarardi — noto'g'ri.
+   * Endi bu funksiya faqat isEnabled (boolean) qaytaradi.
+   */
+  const checkNFCEnabled = async (): Promise<boolean> => {
+    try {
       const enabled = await NfcManager.isEnabled();
       setNfcEnabled(enabled);
-
-      if (enabled && nfcCheckTimer.current) {
-        clearInterval(nfcCheckTimer.current);
-        nfcCheckTimer.current = null;
-        return;
-      }
-
-      if (!enabled) {
-        Alert.alert(
-          t('nfc_unavailable_short'),
-          t('nfc_settings_manual'),
-          [
-            { text: t('cancel'), style: 'cancel' },
-            { text: t('enable_nfc'), onPress: openNFCSettings },
-          ]
-        );
-      }
+      return enabled;
     } catch (err) {
-      console.error('NFC check error', err);
-      setNfcEnabled(false);
+      console.error('NFC isEnabled error', err);
+      return false;
     }
   };
 
@@ -183,72 +213,138 @@ export default function CheckinScreen() {
     }
   };
 
+  /**
+   * FIX: startNFCCheck — to'g'ri tartib:
+   *  1) isSupported tekshir
+   *  2) start() bir marta chaqir
+   *  3) isEnabled tekshir
+   *  4) O'chiq bo'lsa → alert + 5s polling (start() siz)
+   */
   const startNFCCheck = async () => {
-    // ✅ Darhol tekshirish — 5 soniya kutilmaydi
-    await checkNFCStatus();
+    try {
+      const supported = await NfcManager.isSupported();
+      setNfcSupported(supported);
 
-    // ✅ Faqat NFC qo'llab-quvvatlansa timer ishga tushadi
-    const supported = await NfcManager.isSupported();
-    if (!supported) return;
+      if (!supported) {
+        setNfcEnabled(false);
+        return;
+      }
 
-    if (!nfcCheckTimer.current) {
-      nfcCheckTimer.current = setInterval(async () => {
-        await checkNFCStatus();
-      }, 5000);
+      const started = await ensureNfcStarted();
+      if (!started) return;
+
+      const enabled = await NfcManager.isEnabled();
+      setNfcEnabled(enabled);
+
+      if (enabled) {
+        // useEffect [nfcEnabled] → handleStartScan chaqiriladi
+        return;
+      }
+
+      // NFC o'chiq — foydalanuvchiga xabar
+      Alert.alert(
+        t('nfc_unavailable_short'),
+        t('nfc_settings_manual'),
+        [
+          { text: t('cancel'), style: 'cancel' },
+          { text: t('enable_nfc'), onPress: openNFCSettings },
+        ]
+      );
+
+      // FIX: Polling — faqat isEnabled, start() yo'q
+      if (!nfcCheckTimer.current) {
+        nfcCheckTimer.current = setInterval(async () => {
+          try {
+            const isNowEnabled = await NfcManager.isEnabled();
+            setNfcEnabled(isNowEnabled);
+
+            if (isNowEnabled) {
+              // Timer ni to'xtatamiz; handleStartScan useEffect orqali keladi
+              clearInterval(nfcCheckTimer.current!);
+              nfcCheckTimer.current = null;
+            }
+          } catch (err) {
+            console.error('NFC poll error', err);
+          }
+        }, 5000);
+      }
+    } catch (err) {
+      console.error('startNFCCheck error', err);
     }
   };
 
+  /**
+   * Controlled loop — cheksiz rekursiya yo'q.
+   * finally blokida setTimeout orqali qayta urinadi.
+   */
   const handleStartScan = async () => {
-    if (!nfcEnabled) {
-      setMessage('⚠️ ' + t('nfc_unavailable_short'));
-      return;
-    }
-
-    if (nfcCheckTimer.current) {
-      clearInterval(nfcCheckTimer.current);
-      nfcCheckTimer.current = null;
-    }
-
-    setIsScanning(true);
-    setMessage(t('tap_tag'));
-
-    const SCAN_TIMEOUT = 20000;
+    if (isScanningRef.current || !isActiveRef.current) return;
 
     try {
-      const scanPromise = (async () => {
-        await NfcManager.requestTechnology(['NfcA', 'MifareClassic'] as any);
-        const tag = await NfcManager.getTag();
-        return tag;
-      })();
+      isScanningRef.current = true;
+      setMessage(t('tap_tag'));
 
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('Scan timeout')), SCAN_TIMEOUT);
-      });
+      await NfcManager.requestTechnology(['NfcA', 'MifareClassic'] as any);
+      const tag = await NfcManager.getTag();
 
-      const tag = await Promise.race([scanPromise, timeoutPromise]) as any;
-
-      if (tag && tag.id) {
+      if (tag?.id) {
         await handleNFCCheckin(tag.id);
       } else {
-        setMessage('⚠️ Tag ID not found');
+        console.warn('Tag detected but no ID available');
+        setMessage(t('invalid_tag'));
       }
     } catch (err) {
       console.error('NFC scan error:', err);
-      if ((err as Error).message === 'Scan timeout') {
-        setMessage(t('tap_tag'));
-      } else {
-        setMessage('⚠️ ' + t('scan_failed'));
-      }
+      const errorMsg = err instanceof Error ? err.message : t('scan_failed');
+      setMessage(`${t('scan_error')}: ${errorMsg}`);
     } finally {
-      setIsScanning(false);
       await NfcManager.cancelTechnologyRequest().catch(() => { });
-      startNFCCheck();
+      isScanningRef.current = false;
+
+      setTimeout(() => {
+        if (isActiveRef.current) handleStartScan();
+      }, 1500);
     }
   };
 
-  // ---------------------------------------------------------------------------
-  // GPS — umumiy helper, userId parametr sifatida keladi
-  // ---------------------------------------------------------------------------
+  // ─── GPS ──────────────────────────────────────────────────────────────────
+
+  const syncOfflineCheckins = async () => {
+    try {
+      const offlineCheckins = await StorageService.getOfflineCheckins();
+      if (offlineCheckins.length === 0) return;
+
+      const currentUserId = userIdRef.current;
+      if (!currentUserId) return;
+
+      console.log(`Syncing ${offlineCheckins.length} offline checkins...`);
+
+      for (const checkin of offlineCheckins) {
+        try {
+          const data = await ApiService.checkin(
+            checkin.userId,
+            checkin.checkpointCardNum,
+            undefined,
+            undefined
+          );
+
+          if (data.success) {
+            await StorageService.removeOfflineCheckin(checkin.id);
+            await StorageService.updateCheckinLogSynced(
+              checkin.id,
+              data.res?.checkpoint?.name
+            );
+          }
+        } catch (err) {
+          console.warn('Failed to sync checkin:', checkin.id, err);
+        }
+      }
+
+      await loadLogs();
+    } catch (err) {
+      console.error('Sync error:', err);
+    }
+  };
 
   const fetchAndSendLocation = async (currentUserId: number) => {
     const position = await Location.getCurrentPositionAsync({});
@@ -257,8 +353,11 @@ export default function CheckinScreen() {
       longitude: position.coords.longitude,
     };
 
-    setCurrentLocation(location);
+    // FIX: ref yangilanadi — handleNFCCheckin har doim yangi qiymat oladi
+    currentLocationRef.current = location;
     setGpsEnabled(true);
+
+    await syncOfflineCheckins();
 
     try {
       await ApiService.updateLocation(currentUserId, location.latitude, location.longitude);
@@ -270,13 +369,8 @@ export default function CheckinScreen() {
   const startGPSTracking = (currentUserId: number) => {
     if (gpsTrackingTimer.current) return;
 
-    // ✅ Darhol bir marta — 15 soniya kutilmaydi
-    fetchAndSendLocation(currentUserId).catch((err) => {
-      console.warn('GPS not enabled:', err);
-      setGpsEnabled(false);
-    });
+    fetchAndSendLocation(currentUserId).catch(() => setGpsEnabled(false));
 
-    // ✅ Keyin har 15 soniyada
     gpsTrackingTimer.current = setInterval(async () => {
       try {
         await fetchAndSendLocation(currentUserId);
@@ -294,13 +388,13 @@ export default function CheckinScreen() {
     }
   };
 
-  // ---------------------------------------------------------------------------
-  // Checkin
-  // ---------------------------------------------------------------------------
+  // ─── Checkin ──────────────────────────────────────────────────────────────
 
   const handleNFCCheckin = async (tagId: string) => {
-    // ✅ Storage ga murojaat yo'q — userId state dan olinadi
-    if (!userId) {
+    const currentUserId = userIdRef.current;
+    const currentUsername = usernameRef.current;
+
+    if (!currentUserId) {
       console.error('User ID is missing');
       setMessage('❌ ' + t('user_id_missing'));
       return;
@@ -313,41 +407,49 @@ export default function CheckinScreen() {
     }
     lastScanTime.current = now;
 
-    setIsScanning(true);
     setMessage(t('loading'));
 
     try {
       const cardNum = tryConvertToDecimal(tagId);
-
       let attempt = 0;
       let success = false;
 
       while (attempt < CONFIG.CHECKIN.MAX_RETRIES && !success) {
         attempt++;
         try {
-          const data = await ApiService.checkin(
-            userId,
-            cardNum,
-            currentLocation?.latitude,
-            currentLocation?.longitude
+          /**
+           * FIX: currentLocationRef — useState emas, ref ishlatiladi.
+           * useState ichidagi qiymat handleNFCCheckin closure da
+           * eski qiymatni ko'rishi mumkin (stale closure).
+           * Ref esa har doim hozirgi qiymatni qaytaradi.
+           */
+          const lat = currentLocationRef.current?.latitude;
+          const lng = currentLocationRef.current?.longitude;
+
+          console.log(
+            `Checkin attempt ${attempt}/${CONFIG.CHECKIN.MAX_RETRIES} | ` +
+            `card=${cardNum} | lat=${lat ?? 'null'} | lng=${lng ?? 'null'}`
           );
+
+          const data = await ApiService.checkin(currentUserId, cardNum, lat, lng);
 
           if (data.success) {
             const dateStr = new Date(data.res!.createdAt).toLocaleString('uz-UZ');
             const finalLog = `${t('last_log_prefix')}: ${data.res!.checkpoint.name} (${dateStr})`;
+
             setLastLog(finalLog);
             await StorageService.setLastLog(finalLog);
 
-            const checkinLog: CheckinLog = {
-              id: Date.now().toString(),
-              userId,
-              username,
-              checkpointName: data.res!.checkpoint.name,
-              checkpointCardNum: cardNum,
-              timestamp: Date.now(),
-              status: 'success',
-              synced: true,
-            };
+            const checkinLog = createCheckinLog(
+              Date.now().toString(),
+              currentUserId,
+              currentUsername,
+              data.res!.checkpoint.name,
+              cardNum,
+              'success',
+              true
+            );
+
             await StorageService.addCheckinLog(checkinLog);
             await loadLogs();
 
@@ -355,9 +457,10 @@ export default function CheckinScreen() {
             playSound('success');
             Vibration.vibrate([100, 50, 100]);
 
-            setTimeout(() => {
-              setMessage(t('tap_tag'));
-            }, CONFIG.CHECKIN.SUCCESS_MESSAGE_DURATION);
+            setTimeout(
+              () => setMessage(t('tap_tag')),
+              CONFIG.CHECKIN.SUCCESS_MESSAGE_DURATION
+            );
 
             success = true;
           } else {
@@ -365,21 +468,32 @@ export default function CheckinScreen() {
           }
         } catch (err) {
           if (attempt < CONFIG.CHECKIN.MAX_RETRIES) {
-            setMessage(`${t('retry_connection')} (${attempt}/${CONFIG.CHECKIN.MAX_RETRIES})`);
-            await new Promise((resolve) => setTimeout(resolve, CONFIG.CHECKIN.RETRY_DELAY));
+            setMessage(
+              `${t('retry_connection')} (${attempt}/${CONFIG.CHECKIN.MAX_RETRIES})`
+            );
+            await new Promise((resolve) =>
+              setTimeout(resolve, CONFIG.CHECKIN.RETRY_DELAY)
+            );
           } else {
-            await StorageService.storeOfflineCheckin({ userId, checkpointCardNum: cardNum });
+            // Offline saqlash
+            const offlineId = Date.now().toString();
 
-            const checkinLog: CheckinLog = {
-              id: Date.now().toString(),
-              userId,
-              username,
-              checkpointName: 'Unknown',
+            await StorageService.storeOfflineCheckin({
+              id: offlineId,
+              userId: currentUserId,
               checkpointCardNum: cardNum,
-              timestamp: Date.now(),
-              status: 'offline',
-              synced: false,
-            };
+            });
+
+            const checkinLog = createCheckinLog(
+              offlineId,
+              currentUserId,
+              currentUsername,
+              'Unknown',
+              cardNum,
+              'offline',
+              false
+            );
+
             await StorageService.addCheckinLog(checkinLog);
             await loadLogs();
 
@@ -393,8 +507,6 @@ export default function CheckinScreen() {
       console.error('Checkin error', err);
       setMessage(t('internet_or_server_error'));
       playSound('error');
-    } finally {
-      setIsScanning(false);
     }
   };
 
@@ -404,47 +516,46 @@ export default function CheckinScreen() {
     return value;
   };
 
-  // ---------------------------------------------------------------------------
-  // Navigation
-  // ---------------------------------------------------------------------------
+  // ─── Navigation ───────────────────────────────────────────────────────────
 
   const handleLogout = () => {
-    Alert.alert(
-      t('confirm_logout'),
-      '',
-      [
-        { text: t('cancel'), style: 'cancel' },
-        {
-          text: t('ok'),
-          style: 'destructive',
-          onPress: async () => {
-            await StorageService.clearAll();
-            // @ts-ignore
-            router.replace('/');
-          },
+    Alert.alert(t('confirm_logout'), '', [
+      { text: t('cancel'), style: 'cancel' },
+      {
+        text: t('ok'),
+        style: 'destructive',
+        onPress: async () => {
+          await StorageService.clearAll();
+          router.replace('/' as any);
         },
-      ]
-    );
+      },
+    ]);
   };
 
-  // ---------------------------------------------------------------------------
-  // Cleanup
-  // ---------------------------------------------------------------------------
+  // ─── Cleanup ──────────────────────────────────────────────────────────────
 
   const cleanup = () => {
+    isActiveRef.current = false;
+    isScanningRef.current = false;
+
     stopGPSTracking();
+
     if (nfcCheckTimer.current) {
       clearInterval(nfcCheckTimer.current);
       nfcCheckTimer.current = null;
     }
+
     NfcManager.cancelTechnologyRequest().catch(() => { });
+
+    successSoundRef.current?.unloadAsync().catch(() => { });
+    successSoundRef.current = null;
+    errorSoundRef.current?.unloadAsync().catch(() => { });
+    errorSoundRef.current = null;
   };
 
-  // ---------------------------------------------------------------------------
-  // Helpers
-  // ---------------------------------------------------------------------------
+  // ─── Helpers ──────────────────────────────────────────────────────────────
 
-  const formatLogTime = (timestamp: number) => {
+  const formatLogTime = useCallback((timestamp: number) => {
     return new Date(timestamp).toLocaleString('uz-UZ', {
       day: '2-digit',
       month: '2-digit',
@@ -452,23 +563,41 @@ export default function CheckinScreen() {
       hour: '2-digit',
       minute: '2-digit',
     });
-  };
+  }, []);
 
-  const getStatusColor = (status: string) => {
+  const getStatusColor = useCallback((status: string) => {
     switch (status) {
       case 'success': return Colors.success || '#22c55e';
       case 'offline': return Colors.warning || '#f59e0b';
       case 'failed': return Colors.danger || '#ef4444';
       default: return Colors.textSecondary || '#6b7280';
     }
-  };
+  }, []);
 
-  // ---------------------------------------------------------------------------
-  // Render
-  // ---------------------------------------------------------------------------
+  const createCheckinLog = useCallback((
+    id: string,
+    userId: number,
+    username: string,
+    checkpointName: string,
+    checkpointCardNum: string,
+    status: 'success' | 'offline' | 'failed',
+    synced: boolean
+  ): CheckinLog => ({
+    id,
+    userId,
+    username,
+    checkpointName,
+    checkpointCardNum,
+    timestamp: Date.now(),
+    status,
+    synced,
+  }), []);
+
+  // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
     <View style={styles.container}>
+      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.username}>{username}</Text>
         <Button
@@ -479,17 +608,11 @@ export default function CheckinScreen() {
         />
       </View>
 
+      {/* Content */}
       <View style={styles.content}>
-        <Button
-          title={isScanning ? t('scanning') : t('scan_nfc_tag')}
-          onPress={handleStartScan}
-          disabled={isScanning || !nfcEnabled}
-          loading={isScanning}
-          size="medium"
-          style={styles.scanButton}
-        />
+        {message ? <Text style={styles.message}>{message}</Text> : null}
 
-        {!nfcEnabled && (
+        {nfcSupported && !nfcEnabled && (
           <ErrorMessage message={t('nfc_unavailable_short')} type="warning" />
         )}
 
@@ -507,11 +630,19 @@ export default function CheckinScreen() {
                 const statusInfo = STATUS_MAP[log.status];
                 return (
                   <View key={log.id} style={styles.logItem}>
-                    <View style={[styles.logDot, { backgroundColor: getStatusColor(log.status) }]} />
+                    <View
+                      style={[
+                        styles.logDot,
+                        { backgroundColor: getStatusColor(log.status) },
+                      ]}
+                    />
                     <View style={styles.logContent}>
-                      <Text style={styles.logCheckpoint}>{log.checkpointName}</Text>
-                      <Text style={styles.logTime}>{formatLogTime(log.timestamp)}</Text>
-                      {/* ✅ STATUS_MAP orqali — takrorsiz */}
+                      <Text style={styles.logCheckpoint}>
+                        {log.checkpointName}
+                      </Text>
+                      <Text style={styles.logTime}>
+                        {formatLogTime(log.timestamp)}
+                      </Text>
                       {statusInfo && (
                         <Text style={styles.logStatus}>
                           {statusInfo.icon} {t(statusInfo.labelKey)}
@@ -526,14 +657,15 @@ export default function CheckinScreen() {
         </View>
       </View>
 
+      {/* Footer */}
       <View style={styles.footer}>
-        <Text style={styles.footerText}>
-          {lastLog || t('no_last_log')}
-        </Text>
+        <Text style={styles.footerText}>{lastLog || t('no_last_log')}</Text>
       </View>
     </View>
   );
 }
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   container: {
@@ -554,27 +686,18 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Colors.textPrimary,
   },
-  headerButtons: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-  },
   content: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: Spacing.lg,
   },
-  messageCard: {
-    padding: Spacing.xxxl,
-    maxWidth: 400,
-    width: '100%',
-    alignItems: 'center',
-  },
   message: {
     fontSize: FontSize.xxl,
     fontWeight: '600',
     color: Colors.textPrimary,
     textAlign: 'center',
+    marginBottom: Spacing.lg,
   },
   footer: {
     backgroundColor: Colors.white,
@@ -586,9 +709,6 @@ const styles = StyleSheet.create({
   footerText: {
     fontSize: FontSize.sm,
     color: Colors.textSecondary,
-  },
-  scanButton: {
-    marginTop: Spacing.lg,
   },
   logsContainer: {
     marginTop: Spacing.xl,

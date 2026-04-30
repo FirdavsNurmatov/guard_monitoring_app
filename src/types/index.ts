@@ -26,6 +26,7 @@ export interface CheckinResponse {
 }
 
 export interface OfflineCheckin {
+  id: string;
   userId: number;
   checkpointCardNum: string;
 }
