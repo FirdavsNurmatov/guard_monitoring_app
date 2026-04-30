@@ -29,6 +29,8 @@ export interface OfflineCheckin {
   id: string;
   userId: number;
   checkpointCardNum: string;
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface LogEntry {

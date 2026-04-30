@@ -324,8 +324,8 @@ export default function CheckinScreen() {
           const data = await ApiService.checkin(
             checkin.userId,
             checkin.checkpointCardNum,
-            undefined,
-            undefined
+            checkin.latitude,
+            checkin.longitude
           );
 
           if (data.success) {
@@ -482,6 +482,8 @@ export default function CheckinScreen() {
               id: offlineId,
               userId: currentUserId,
               checkpointCardNum: cardNum,
+              latitude: currentLocationRef.current?.latitude,
+              longitude: currentLocationRef.current?.longitude
             });
 
             const checkinLog = createCheckinLog(
